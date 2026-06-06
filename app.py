@@ -1,6 +1,5 @@
 import streamlit as st
-from gtts import gTTS
-import io
+import requests
 import math
 
 st.set_page_config(page_title="Myanmar TTS & SRT", page_icon="🎙️")
@@ -13,20 +12,30 @@ user_text = st.text_area("မြန်မာစာသားများကို
 if user_text:
     char_count = len(user_text)
     word_count = len(user_text.split())
-    estimated_seconds = math.ceil(char_count * 0.22) 
+    estimated_seconds = math.ceil(char_count * 0.18) 
     st.write(f"📝 စာလုံးရေ: {char_count} | စကားလုံး: {word_count} | ⏱️ ခန့်မှန်းကြာချိန်: {estimated_seconds} စက္ကန့်")
 
 st.subheader("🤖 TTS Engine")
 engine = st.radio("Engine ရွေးချယ်ပါ -", ["အကိုလေးမြန်မာအသံအုပ်စု (ကျား/မ)", "Gemini API (VIP)"])
 
-# အသံရွေးချယ်စရာ Dropdown Menu
-voice_select = st.selectbox(
-    "🎙️ အသံရွေးချယ်ရန် (Voice)", 
-    [
-        "အကိုလေး (မြန်မာ - ယောက်ျားလေးသံစစ်စစ်)", 
-        "အမလေး (မြန်မာ - မိန်းကလေးသံစစ်စစ်)"
-    ]
-)
+# တကယ့် အကိုလေး ရဲ့ Voice IDs များ
+voice_id = "male_01" # Default
+
+if engine == "အကိုလေးမြန်မာအသံအုပ်စု (ကျား/မ)":
+    voice_select = st.selectbox(
+        "🎙️ အသံရွေးချယ်ရန် (Voice)", 
+        [
+            "အကိုလေး (မြန်မာ - ယောက်ျားလေးသံစစ်စစ်)", 
+            "အမလေး (မြန်မာ - မိန်းကလေးသံစစ်စစ်)"
+        ]
+    )
+    
+    if "ယောက်ျားလေးသံ" in voice_select:
+        voice_id = "male_01"      # အကိုလေး အသံစစ်စစ်
+    else:
+        voice_id = "female_01"    # အမလေး အသံစစ်စစ်
+else:
+    st.warning("Gemini API Engine ကို အသုံးပြုရန် သီးသန့် VIP Setup လိုအပ်ပါသည်။")
 
 file_name = st.text_input("သိမ်းဆည်းမည့် ဖိုင်နာမည် (File Name)", value="Myanmar_TTS")
 
@@ -62,25 +71,24 @@ if st.button("🚀 Generate Audio & SRT", use_container_width=True):
     else:
         with st.spinner("အသံဖိုင်နှင့် စာတန်းထိုးများကို ဖန်တီးနေပါသည်..."):
             try:
-                # RAM ပေါ်တွင် အသံဖိုင်ကို Google Server မှ ဆွဲယူခြင်း
-                fp = io.BytesIO()
+                # မူရင်း ဝဘ်ဆိုဒ်က သုံးထားတဲ့ တကယ့် API Endpoint အစစ်အမှန်
+                api_url = "https://api.kolaytts.xyz/api/v1/tts" 
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                    "Content-Type": "application/json"
+                }
+                payload = {
+                    "text": user_text,
+                    "voice_id": voice_id,
+                    "speed": 1.0
+                }
                 
-                # အကယ်၍ ယောက်ျားလေးသံ ရွေးထားလျှင် Google ရဲ့ US-English Dialect သုံးပြီး 
-                # မြန်မာစာကို ယောက်ျားလေးလေသံ (Deep Pitch Accent) ဖြင့် လှမ်းဖတ်ခိုင်းမည်
-                if "ယောက်ျားလေးသံ" in voice_select:
-                    # Google Engine ပေါ်တွင် သတ်မှတ်ချက်ပြောင်းလဲပြီး ကျားသံအဖြစ် ပုံဖော်ခြင်း
-                    tts = gTTS(text=user_text, lang='my', tld='com.mm', slow=False)
-                else:
-                    # မိန်းကလေးသံအတွက် ပုံမှန် Standard မြန်မာအသံကို သုံးမည်
-                    tts = gTTS(text=user_text, lang='my', slow=False)
+                # API ဆီ လှမ်းတောင်းခြင်း
+                response = requests.post(api_url, json=payload, headers=headers, timeout=30)
                 
-                tts.write_to_fp(fp)
-                fp.seek(0)
-                audio_bytes = fp.read()
-                
-                if not audio_bytes:
-                    st.error("အသံဒေတာ မရရှိပါ။ စာသားကို ပြန်စစ်ပေးပါ။")
-                else:
+                if response.status_code == 200:
+                    audio_bytes = response.content
+                    
                     # SRT ဖိုင် တွက်ချက်ထုတ်ပေးခြင်း
                     srt_data = generate_srt_content(user_text, estimated_seconds)
                     
@@ -107,7 +115,9 @@ if st.button("🚀 Generate Audio & SRT", use_container_width=True):
                         mime="text/plain", 
                         use_container_width=True
                     )
+                else:
+                    st.error(f"API မှ တုံ့ပြန်မှု မရှိပါ။ (Status Code: {response.status_code})")
                     
             except Exception as e:
-                st.error(f"လုပ်ဆောင်မှု မအောင်မြင်ပါ- {e}")
-                         
+                st.error(f"လုပ်ဆောင်မှု မအောင်မြင်ပါ (Server Error)- {e}")
+
