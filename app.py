@@ -1,8 +1,7 @@
 import streamlit as st
-import asyncio
-import edge_tts
-import math
+from gtts import gTTS
 import io
+import math
 
 st.set_page_config(page_title="Myanmar TTS & SRT", page_icon="🎙️")
 st.title("🎙️ Myanmar TTS & SRT Generator")
@@ -14,18 +13,11 @@ user_text = st.text_area("မြန်မာစာသားများကို
 if user_text:
     char_count = len(user_text)
     word_count = len(user_text.split())
-    estimated_seconds = math.ceil(char_count * 0.18) 
+    estimated_seconds = math.ceil(char_count * 0.22) 
     st.write(f"📝 စာလုံးရေ: {char_count} | စကားလုံး: {word_count} | ⏱️ ခန့်မှန်းကြာချိန်: {estimated_seconds} စက္ကန့်")
 
 st.subheader("🤖 TTS Engine")
-engine = st.radio("Engine ရွေးချယ်ပါ -", ["အကိုလေးမြန်မာအသံအုပ်စု (ကျား/မ)", "Gemini API"])
-
-if engine == "အကိုလေးမြန်မာအသံအုပ်စု (ကျား/မ)":
-    voice_select = st.selectbox("အသံရွေးချယ်ရန် (Voice)", ["အကိုလေး (ကျား) - ZawZaw", "အမလေး (မ) - Khing"])
-    voice_id = "my-MM-ZawZawNeural" if "အကိုလေး" in voice_select else "my-MM-KhingNeural"
-else:
-    st.warning("Gemini API Engine ကို အသုံးပြုရန် သီးသန့် Setup လိုအပ်ပါသည်။")
-    voice_id = "my-MM-ZawZawNeural"
+engine = st.radio("Engine ရွေးချယ်ပါ -", ["Google Myanmar Voice (Free)", "Gemini API (VIP နမူနာ)"])
 
 file_name = st.text_input("သိမ်းဆည်းမည့် ဖိုင်နာမည် (File Name)", value="Myanmar_TTS")
 
@@ -54,15 +46,6 @@ def generate_srt_content(text, total_seconds):
         current_time = end
     return srt_content
 
-# Memory ပေါ်မှာတင် အသံဖိုင်ဒေတာကို ဆွဲယူမည့် Async Function
-async def get_voice_bytes(text, voice) -> bytes:
-    communicate = edge_tts.Communicate(text, voice)
-    audio_data = b""
-    async for chunk in communicate.stream():
-        if chunk["type"] == "audio":
-            audio_data += chunk["data"]
-    return audio_data
-
 # Button Click Trigger
 if st.button("🚀 Generate Audio & SRT", use_container_width=True):
     if not user_text:
@@ -70,26 +53,27 @@ if st.button("🚀 Generate Audio & SRT", use_container_width=True):
     else:
         with st.spinner("အသံဖိုင်နှင့် စာတန်းထိုးများကို ဖန်တီးနေပါသည်..."):
             try:
-                # 1. Edge TTS ကနေ အသံဖိုင်ကို Bytes စနစ်နဲ့ တိုက်ရိုက်ဆွဲယူမယ်
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                audio_bytes = loop.run_until_complete(get_voice_bytes(user_text, voice_id))
+                # 1. Google TTS ကို အသုံးပြုပြီး Memory ပေါ်တွင် Audio Bytes တိုက်ရိုက်ထုတ်ယူခြင်း
+                fp = io.BytesIO()
+                tts = gTTS(text=user_text, lang='my', slow=False)
+                tts.write_to_fp(fp)
+                fp.seek(0)
+                audio_bytes = fp.read()
                 
                 if not audio_bytes:
-                    st.error("Microsoft Server မှ အသံဒေတာ မရရှိပါ။ စာသားကို ပြန်စစ်ပေးပါ။")
+                    st.error("အသံဒေတာ မရရှိပါ။ စာသားကို ပြန်စစ်ပေးပါ။")
                 else:
                     # 2. SRT ဖိုင် တွက်ချက်ထုတ်ပေးခြင်း
                     srt_data = generate_srt_content(user_text, estimated_seconds)
                     
                     st.success("🎉 အောင်မြင်စွာ ဖန်တီးပြီးပါပြီ။")
                     
-                    # 3. Audio Player ကို Bytes အတိုင်း တိုက်ရိုက်ပြမယ်
+                    # 3. Audio Player သို့ ပြသခြင်း
                     st.subheader("🎵 Output Audio")
                     st.audio(audio_bytes, format="audio/mp3")
                     
                     st.subheader("💾 ဒေါင်းလုဒ်ရယူရန်")
                     
-                    # ဒေါင်းလုဒ်ခလုတ်များတွင် ဒေတာများကို တိုက်ရိုက်ထည့်သွင်းခြင်း
                     st.download_button(
                         label="📥 MP3 Download", 
                         data=audio_bytes, 
@@ -108,4 +92,4 @@ if st.button("🚀 Generate Audio & SRT", use_container_width=True):
                     
             except Exception as e:
                 st.error(f"လုပ်ဆောင်မှု မအောင်မြင်ပါ- {e}")
-
+                
