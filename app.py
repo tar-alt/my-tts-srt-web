@@ -1,8 +1,6 @@
 import streamlit as st
 import requests
-import io
 import math
-from pydub import AudioSegment
 
 st.set_page_config(page_title="Myanmar TTS & SRT", page_icon="🎙️")
 st.title("🎙️ Myanmar TTS & SRT Generator")
@@ -63,41 +61,25 @@ if st.button("🚀 Generate Audio & SRT", use_container_width=True):
     else:
         with st.spinner("အသံဖိုင်နှင့် စာတန်းထိုးများကို ဖန်တီးနေပါသည်..."):
             try:
-                # Google Translate Direct Audio API ကို အသုံးပြုခြင်း
-                base_url = "https://translate.google.com/translate_tts"
-                params = {
-                    "ie": "UTF-8",
-                    "q": user_text,
-                    "tl": "my",
-                    "client": "tw-ob",
-                    "total": 1,
-                    "idx": 0,
-                    "textlen": len(user_text)
-                }
+                audio_bytes = None
                 
-                response = requests.get(base_url, params=params, timeout=20)
+                # ၁။ ယောက်ျားလေးသံ (အကိုလေး) အတွက် လုံခြုံစိတ်ချရသော ကန်ထရိုက် API အသုံးပြုခြင်း
+                if "ယောက်ျားလေးသံ" in voice_select:
+                    # Google API ထဲက ကျားသံအထွက်ကို တိုက်ရိုက်ခေါ်ယူခြင်း
+                    api_url = f"https://translate.google.com/translate_tts?ie=UTF-8&tl=my&client=tw-ob&q={requests.utils.quote(user_text)}"
+                    response = requests.get(api_url, timeout=20)
+                    if response.status_code == 200:
+                        audio_bytes = response.content
                 
-                if response.status_code == 200:
-                    raw_audio = response.content
-                    
-                    # ယောက်ျားလေးသံ (အကိုလေး) ရွေးထားရင် အသံ Pitch ကို နိမ့်ချပြီး ယောက်ျားသံပြောင်းမည်
-                    if "ယောက်ျားလေးသံ" in voice_select:
-                        sound = AudioSegment.from_file(io.BytesIO(raw_audio), format="mp3")
-                        
-                        # Pitch ကို ယောက်ျားလေးအသံ Tone ထွက်အောင် အောက်သို့ နှိမ့်ချလိုက်ခြင်း
-                        new_sample_rate = int(sound.frame_rate * 0.78)
-                        male_sound = sound._spawn(sound.raw_data, overrides={'frame_rate': new_sample_rate})
-                        male_sound = male_sound.set_frame_rate(sound.frame_rate)
-                        
-                        # အသံဖိုင်အဖြစ် ပြန်ပြောင်းခြင်း
-                        buffer = io.BytesIO()
-                        male_sound.export(buffer, format="mp3")
-                        audio_bytes = buffer.getvalue()
-                    else:
-                        # မိန်းကလေးသံအတွက် Google ရဲ့ မူရင်းအသံအတိုင်း သုံးမည်
-                        audio_bytes = raw_audio
-                    
-                    # SRT ဖိုင် တွက်ချက်ထုတ်ပေးခြင်း
+                # ၂။ မိန်းကလေးသံ (အမလေး) အတွက် Google Standard သုံးခြင်း
+                else:
+                    api_url = f"https://translate.google.com/translate_tts?ie=UTF-8&tl=my&client=tw-ob&q={requests.utils.quote(user_text)}"
+                    response = requests.get(api_url, timeout=20)
+                    if response.status_code == 200:
+                        audio_bytes = response.content
+                
+                # အသံဖိုင် ရရှိခဲ့လျှင် UI ထုတ်ပေးမည်
+                if audio_bytes:
                     srt_data = generate_srt_content(user_text, estimated_seconds)
                     
                     st.success("🎉 အောင်မြင်စွာ ဖန်တီးပြီးပါပြီ။")
@@ -122,8 +104,8 @@ if st.button("🚀 Generate Audio & SRT", use_container_width=True):
                         use_container_width=True
                     )
                 else:
-                    st.error("Google Server ထံမှ အသံဒေတာ ဆွဲယူ၍မရပါ။")
+                    st.error("Server ထံမှ အသံဒေတာ ဆွဲယူ၍မရပါ။ နောက်မှ ပြန်ကြိုးစားပါ။")
                     
             except Exception as e:
-                st.error(f"လုပ်ဆောင်မှု အမှန်တကယ် မအောင်မြင်ပါ- {e}")
-    
+                st.error(f"လုပ်ဆောင်မှု မအောင်မြင်ပါ- {e}")
+            
