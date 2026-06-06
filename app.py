@@ -1,5 +1,6 @@
 import streamlit as st
-import requests
+import pyttsx3
+import os
 import math
 
 st.set_page_config(page_title="Myanmar TTS & SRT", page_icon="🎙️")
@@ -12,30 +13,20 @@ user_text = st.text_area("မြန်မာစာသားများကို
 if user_text:
     char_count = len(user_text)
     word_count = len(user_text.split())
-    estimated_seconds = math.ceil(char_count * 0.18) 
+    estimated_seconds = math.ceil(char_count * 0.20) 
     st.write(f"📝 စာလုံးရေ: {char_count} | စကားလုံး: {word_count} | ⏱️ ခန့်မှန်းကြာချိန်: {estimated_seconds} စက္ကန့်")
 
 st.subheader("🤖 TTS Engine")
-engine = st.radio("Engine ရွေးချယ်ပါ -", ["အကိုလေးမြန်မာအသံအုပ်စု (ကျား/မ)", "Gemini API (VIP)"])
+engine_type = st.radio("Engine ရွေးချယ်ပါ -", ["အကိုလေးမြန်မာအသံအုပ်စု (ကျား/မ)", "Gemini API (VIP)"])
 
-# တကယ့် အကိုလေး ရဲ့ Voice IDs များ
-voice_id = "male_01" # Default
-
-if engine == "အကိုလေးမြန်မာအသံအုပ်စု (ကျား/မ)":
-    voice_select = st.selectbox(
-        "🎙️ အသံရွေးချယ်ရန် (Voice)", 
-        [
-            "အကိုလေး (မြန်မာ - ယောက်ျားလေးသံစစ်စစ်)", 
-            "အမလေး (မြန်မာ - မိန်းကလေးသံစစ်စစ်)"
-        ]
-    )
-    
-    if "ယောက်ျားလေးသံ" in voice_select:
-        voice_id = "male_01"      # အကိုလေး အသံစစ်စစ်
-    else:
-        voice_id = "female_01"    # အမလေး အသံစစ်စစ်
-else:
-    st.warning("Gemini API Engine ကို အသုံးပြုရန် သီးသန့် VIP Setup လိုအပ်ပါသည်။")
+# အသံခွဲခြားသတ်မှတ်ခြင်း Dropdown
+voice_select = st.selectbox(
+    "🎙️ အသံရွေးချယ်ရန် (Voice)", 
+    [
+        "အကိုလေး (မြန်မာ - ယောက်ျားလေးသံစစ်စစ်)", 
+        "အမလေး (မြန်မာ - မိန်းကလေးသံစစ်စစ်)"
+    ]
+)
 
 file_name = st.text_input("သိမ်းဆည်းမည့် ဖိုင်နာမည် (File Name)", value="Myanmar_TTS")
 
@@ -70,25 +61,37 @@ if st.button("🚀 Generate Audio & SRT", use_container_width=True):
         st.warning("ကျေးဇူးပြု၍ စာသားတစ်ခုခု အရင်ရိုက်ထည့်ပါ။")
     else:
         with st.spinner("အသံဖိုင်နှင့် စာတန်းထိုးများကို ဖန်တီးနေပါသည်..."):
+            output_mp3 = f"{file_name}.mp3"
+            
             try:
-                # မူရင်း ဝဘ်ဆိုဒ်က သုံးထားတဲ့ တကယ့် API Endpoint အစစ်အမှန်
-                api_url = "https://api.kolaytts.xyz/api/v1/tts" 
-                headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-                    "Content-Type": "application/json"
-                }
-                payload = {
-                    "text": user_text,
-                    "voice_id": voice_id,
-                    "speed": 1.0
-                }
+                # Local Engine ကို စတင်နှိုးဆော်ခြင်း
+                engine = pyttsx3.init()
                 
-                # API ဆီ လှမ်းတောင်းခြင်း
-                response = requests.post(api_url, json=payload, headers=headers, timeout=30)
+                # Server ထဲမှာ ရှိသမျှ Voices တွေကို ဆွဲထုတ်ခြင်း
+                voices = engine.getProperty('voices')
                 
-                if response.status_code == 200:
-                    audio_bytes = response.content
-                    
+                # ကျား/မ အသံကို ပတ်ဝန်းကျင်အလိုက် ရွေးချယ်ခြင်း
+                if "ယောက်ျားလေးသံ" in voice_select:
+                    if len(voices) > 0:
+                        engine.setProperty('voice', voices[0].id) # ယောက်ျားလေး Voice Base
+                else:
+                    if len(voices) > 1:
+                        engine.setProperty('voice', voices[1].id) # မိန်းကလေး Voice Base
+                    elif len(voices) > 0:
+                        engine.setProperty('voice', voices[0].id)
+                
+                # အသံနှုန်းမြှင့်တင်မှုနှုန်း ချိန်ညှိခြင်း (မြန်မာစာအတွက် အသင့်တော်ဆုံးနှုန်း)
+                engine.setProperty('rate', 145)
+                
+                # အသံဖိုင်ကို တိုက်ရိုက်ဆောက်ပြီး Server ထဲတွင် သိမ်းဆည်းခြင်း
+                engine.save_to_file(user_text, output_mp3)
+                engine.runAndWait()
+                
+                # ဖိုင်တည်ရှိမှုကို စစ်ဆေးပြီး ဒေတာဖတ်ခြင်း
+                if os.path.exists(output_mp3):
+                    with open(output_mp3, "rb") as f:
+                        audio_bytes = f.read()
+                        
                     # SRT ဖိုင် တွက်ချက်ထုတ်ပေးခြင်း
                     srt_data = generate_srt_content(user_text, estimated_seconds)
                     
@@ -103,7 +106,7 @@ if st.button("🚀 Generate Audio & SRT", use_container_width=True):
                     st.download_button(
                         label="📥 MP3 Download", 
                         data=audio_bytes, 
-                        file_name=f"{file_name}.mp3", 
+                        file_name=output_mp3, 
                         mime="audio/mp3", 
                         use_container_width=True
                     )
@@ -115,9 +118,12 @@ if st.button("🚀 Generate Audio & SRT", use_container_width=True):
                         mime="text/plain", 
                         use_container_width=True
                     )
+                    
+                    # ယာယီဖိုင်အား ပြန်လည်ရှင်းလင်းခြင်း
+                    os.remove(output_mp3)
                 else:
-                    st.error(f"API မှ တုံ့ပြန်မှု မရှိပါ။ (Status Code: {response.status_code})")
+                    st.error("အသံဖိုင် ဖန်တီးမှု မအောင်မြင်ပါ။ စာသားပြန်စစ်ပေးပါ။")
                     
             except Exception as e:
-                st.error(f"လုပ်ဆောင်မှု မအောင်မြင်ပါ (Server Error)- {e}")
-
+                st.error(f"လုပ်ဆောင်မှု အမှန်တကယ် မအောင်မြင်ပါ- {e}")
+                    
