@@ -2,7 +2,7 @@ import streamlit as st
 import asyncio
 import edge_tts
 import math
-import os
+import io
 
 st.set_page_config(page_title="Myanmar TTS & SRT", page_icon="🎙️")
 st.title("🎙️ Myanmar TTS & SRT Generator")
@@ -14,17 +14,14 @@ user_text = st.text_area("မြန်မာစာသားများကို
 if user_text:
     char_count = len(user_text)
     word_count = len(user_text.split())
-    # Edge TTS အတွက် ပျမ်းမျှ မြန်မာစာ ၁ လုံးလျှင် ၀.၁၈ စက္ကန့် ခန့်မှန်းတွက်ချက်သည်
     estimated_seconds = math.ceil(char_count * 0.18) 
     st.write(f"📝 စာလုံးရေ: {char_count} | စကားလုံး: {word_count} | ⏱️ ခန့်မှန်းကြာချိန်: {estimated_seconds} စက္ကန့်")
 
 st.subheader("🤖 TTS Engine")
 engine = st.radio("Engine ရွေးချယ်ပါ -", ["အကိုလေးမြန်မာအသံအုပ်စု (ကျား/မ)", "Gemini API"])
 
-# Voice Voice Selection
 if engine == "အကိုလေးမြန်မာအသံအုပ်စု (ကျား/မ)":
     voice_select = st.selectbox("အသံရွေးချယ်ရန် (Voice)", ["အကိုလေး (ကျား) - ZawZaw", "အမလေး (မ) - Khing"])
-    # Microsoft Edge ရဲ့ တရားဝင် မြန်မာ Voice ID များ
     voice_id = "my-MM-ZawZawNeural" if "အကိုလေး" in voice_select else "my-MM-KhingNeural"
 else:
     st.warning("Gemini API Engine ကို အသုံးပြုရန် သီးသန့် Setup လိုအပ်ပါသည်။")
@@ -57,10 +54,14 @@ def generate_srt_content(text, total_seconds):
         current_time = end
     return srt_content
 
-# Async function for Edge TTS
-async def amain(text, voice, mp3_path) -> None:
+# Memory ပေါ်မှာတင် အသံဖိုင်ဒေတာကို ဆွဲယူမည့် Async Function
+async def get_voice_bytes(text, voice) -> bytes:
     communicate = edge_tts.Communicate(text, voice)
-    await communicate.save(mp3_path)
+    audio_data = b""
+    async for chunk in communicate.stream():
+        if chunk["type"] == "audio":
+            audio_data += chunk["data"]
+    return audio_data
 
 # Button Click Trigger
 if st.button("🚀 Generate Audio & SRT", use_container_width=True):
@@ -68,29 +69,42 @@ if st.button("🚀 Generate Audio & SRT", use_container_width=True):
         st.warning("ကျေးဇူးပြု၍ စာသားတစ်ခုခု အရင်ရိုက်ထည့်ပါ။")
     else:
         with st.spinner("အသံဖိုင်နှင့် စာတန်းထိုးများကို ဖန်တီးနေပါသည်..."):
-            mp3_file = f"{file_name}.mp3"
-            srt_file = f"{file_name}.srt"
-            
             try:
-                # Edge TTS ကို Run ပြီး MP3 သိမ်းခြင်း
-                asyncio.run(amain(user_text, voice_id, mp3_file))
+                # 1. Edge TTS ကနေ အသံဖိုင်ကို Bytes စနစ်နဲ့ တိုက်ရိုက်ဆွဲယူမယ်
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                audio_bytes = loop.run_until_complete(get_voice_bytes(user_text, voice_id))
                 
-                # SRT ဖိုင် တွက်ချက်ထုတ်ပေးခြင်း
-                srt_data = generate_srt_content(user_text, estimated_seconds)
-                with open(srt_file, "w", encoding="utf-8") as f:
-                    f.write(srt_data)
-                
-                # အောင်မြင်ကြောင်း UI ပြသခြင်း
-                st.success("🎉 အောင်မြင်စွာ ဖန်တီးပြီးပါပြီ။")
-                
-                st.subheader("🎵 Output Audio")
-                st.audio(mp3_file)
-                
-                st.subheader("💾 ဒေါင်းလုဒ်ရယူရန်")
-                with open(mp3_file, "rb") as f:
-                    st.download_button("📥 MP3 Download", f, file_name=mp3_file, mime="audio/mp3", use_container_width=True)
-                with open(srt_file, "rb") as f:
-                    st.download_button("📥 SRT Download", f, file_name=srt_file, mime="text/plain", use_container_width=True)
+                if not audio_bytes:
+                    st.error("Microsoft Server မှ အသံဒေတာ မရရှိပါ။ စာသားကို ပြန်စစ်ပေးပါ။")
+                else:
+                    # 2. SRT ဖိုင် တွက်ချက်ထုတ်ပေးခြင်း
+                    srt_data = generate_srt_content(user_text, estimated_seconds)
+                    
+                    st.success("🎉 အောင်မြင်စွာ ဖန်တီးပြီးပါပြီ။")
+                    
+                    # 3. Audio Player ကို Bytes အတိုင်း တိုက်ရိုက်ပြမယ်
+                    st.subheader("🎵 Output Audio")
+                    st.audio(audio_bytes, format="audio/mp3")
+                    
+                    st.subheader("💾 ဒေါင်းလုဒ်ရယူရန်")
+                    
+                    # ဒေါင်းလုဒ်ခလုတ်များတွင် ဒေတာများကို တိုက်ရိုက်ထည့်သွင်းခြင်း
+                    st.download_button(
+                        label="📥 MP3 Download", 
+                        data=audio_bytes, 
+                        file_name=f"{file_name}.mp3", 
+                        mime="audio/mp3", 
+                        use_container_width=True
+                    )
+                    
+                    st.download_button(
+                        label="📥 SRT Download", 
+                        data=srt_data.encode('utf-8'), 
+                        file_name=f"{file_name}.srt", 
+                        mime="text/plain", 
+                        use_container_width=True
+                    )
                     
             except Exception as e:
                 st.error(f"လုပ်ဆောင်မှု မအောင်မြင်ပါ- {e}")
