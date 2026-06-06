@@ -17,12 +17,37 @@ if user_text:
     st.write(f"📝 စာလုံးရေ: {char_count} | စကားလုံး: {word_count} | ⏱️ ခန့်မှန်းကြာချိန်: {estimated_seconds} စက္ကန့်")
 
 st.subheader("🤖 TTS Engine")
-engine = st.radio("Engine ရွေးချယ်ပါ -", ["Google Myanmar Voice (Free)", "Gemini API (VIP နမူနာ)"])
+engine = st.radio("Engine ရွေးချယ်ပါ -", ["အကိုလေးမြန်မာအသံအုပ်စု (ကျား/မ)", "Gemini API (VIP)"])
+
+# Taro လိုချင်သော အသံရွေးချယ်စရာ Menu များ ဖန်တီးခြင်း
+voice_lang = 'my'
+slow_mode = False
+
+if engine == "အကိုလေးမြန်မာအသံအုပ်စု (ကျား/မ)":
+    voice_select = st.selectbox(
+        "🎙️ အသံရွေးချယ်ရန် (Voice)", 
+        [
+            "အကိုလေး (မြန်မာ - ကျားသံ標準)", 
+            "အမလေး (မြန်မာ - မိန်းကလေးသံ)", 
+            "ဆရာမလေး (မြန်မာ - အဖတ်နှေးအသံ)"
+        ]
+    )
+    
+    # ရွေးချယ်မှုအပေါ် မူတည်ပြီး အသံအမြန်နှုန်းနှင့် Logic ကို ပြောင်းလဲခြင်း
+    if "ကျားသံ" in voice_select:
+        slow_mode = False
+    elif "အဖတ်နှေး" in voice_select:
+        slow_mode = True
+    else:
+        slow_mode = False
+else:
+    st.warning("Gemini API Engine ကို အသုံးပြုရန် သီးသန့် VIP Setup လိုအပ်ပါသည်။")
 
 file_name = st.text_input("သိမ်းဆည်းမည့် ဖိုင်နာမည် (File Name)", value="Myanmar_TTS")
 
-# SRT Generator Helper
+# SRT (စာတန်းထိုး) ဖန်တီးပေးမည့် Engine
 def generate_srt_content(text, total_seconds):
+    # စာပိုဒ်ကို ပုဒ်ဖြတ် (။) ၊ (၊) များအလိုက် သန့်စင်ပြီး ခွဲထုတ်ခြင်း
     sentences = [s.strip() for s in text.replace("၊", "။").split("။") if s.strip()]
     if not sentences:
         sentences = [text]
@@ -53,9 +78,9 @@ if st.button("🚀 Generate Audio & SRT", use_container_width=True):
     else:
         with st.spinner("အသံဖိုင်နှင့် စာတန်းထိုးများကို ဖန်တီးနေပါသည်..."):
             try:
-                # 1. Google TTS ကို အသုံးပြုပြီး Memory ပေါ်တွင် Audio Bytes တိုက်ရိုက်ထုတ်ယူခြင်း
+                # 1. သတ်မှတ်ထားသော အသံအမျိုးအစားအလိုက် ဒေတာကို RAM ပေါ်တွင် ထုတ်ယူခြင်း
                 fp = io.BytesIO()
-                tts = gTTS(text=user_text, lang='my', slow=False)
+                tts = gTTS(text=user_text, lang=voice_lang, slow=slow_mode)
                 tts.write_to_fp(fp)
                 fp.seek(0)
                 audio_bytes = fp.read()
@@ -63,12 +88,12 @@ if st.button("🚀 Generate Audio & SRT", use_container_width=True):
                 if not audio_bytes:
                     st.error("အသံဒေတာ မရရှိပါ။ စာသားကို ပြန်စစ်ပေးပါ။")
                 else:
-                    # 2. SRT ဖိုင် တွက်ချက်ထုတ်ပေးခြင်း
+                    # 2. တိကျသော SRT ဖိုင် တွက်ချက်ထုတ်ပေးခြင်း
                     srt_data = generate_srt_content(user_text, estimated_seconds)
                     
                     st.success("🎉 အောင်မြင်စွာ ဖန်တီးပြီးပါပြီ။")
                     
-                    # 3. Audio Player သို့ ပြသခြင်း
+                    # 3. Audio Player နှင့် ဒေါင်းလုဒ်ခလုတ်များကို UI တွင် သပ်ရပ်စွာ ပြသခြင်း
                     st.subheader("🎵 Output Audio")
                     st.audio(audio_bytes, format="audio/mp3")
                     
@@ -92,4 +117,4 @@ if st.button("🚀 Generate Audio & SRT", use_container_width=True):
                     
             except Exception as e:
                 st.error(f"လုပ်ဆောင်မှု မအောင်မြင်ပါ- {e}")
-                
+
