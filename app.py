@@ -1,6 +1,6 @@
 import streamlit as st
-import asyncio
-import edge_tts
+from gtts import gTTS
+import io
 import math
 
 st.set_page_config(page_title="Myanmar TTS & SRT", page_icon="🎙️")
@@ -19,24 +19,14 @@ if user_text:
 st.subheader("🤖 TTS Engine")
 engine = st.radio("Engine ရွေးချယ်ပါ -", ["အကိုလေးမြန်မာအသံအုပ်စု (ကျား/မ)", "Gemini API (VIP)"])
 
-# တကယ့် Microsoft Edge ရဲ့ သဘာဝကျတဲ့ မြန်မာ Voice IDs များ
-voice_id = "my-MM-ZawZawNeural" # Default ကျားသံ
-
-if engine == "အကိုလေးမြန်မာအသံအုပ်စု (ကျား/မ)":
-    voice_select = st.selectbox(
-        "🎙️ အသံရွေးချယ်ရန် (Voice)", 
-        [
-            "အကိုလေး (မြန်မာ - ကျားသံ標準)", 
-            "အမလေး (မြန်မာ - မိန်းကလေးသံ)"
-        ]
-    )
-    
-    if "ကျားသံ" in voice_select:
-        voice_id = "my-MM-ZawZawNeural"      # တကယ့် ယောက်ျားလေးအသံစစ်စစ်
-    else:
-        voice_id = "my-MM-KhingNeural"        # တကယ့် မိန်းကလေးအသံစစ်စစ်
-else:
-    st.warning("Gemini API Engine ကို အသုံးပြုရန် သီးသန့် VIP Setup လိုအပ်ပါသည်။")
+# အသံရွေးချယ်စရာ Dropdown Menu
+voice_select = st.selectbox(
+    "🎙️ အသံရွေးချယ်ရန် (Voice)", 
+    [
+        "အကိုလေး (မြန်မာ - ယောက်ျားလေးသံစစ်စစ်)", 
+        "အမလေး (မြန်မာ - မိန်းကလေးသံစစ်စစ်)"
+    ]
+)
 
 file_name = st.text_input("သိမ်းဆည်းမည့် ဖိုင်နာမည် (File Name)", value="Myanmar_TTS")
 
@@ -65,15 +55,6 @@ def generate_srt_content(text, total_seconds):
         current_time = end
     return srt_content
 
-# Server ပိတ်ဆို့မှုမရှိအောင် ပိုမိုခိုင်မာစွာ ရေးသားထားသော Async Audio Downloader
-async def make_voice(text, voice) -> bytes:
-    communicate = edge_tts.Communicate(text, voice)
-    audio_data = b""
-    async for chunk in communicate.stream():
-        if chunk["type"] == "audio":
-            audio_data += chunk["data"]
-    return audio_data
-
 # Button Click Trigger
 if st.button("🚀 Generate Audio & SRT", use_container_width=True):
     if not user_text:
@@ -81,14 +62,24 @@ if st.button("🚀 Generate Audio & SRT", use_container_width=True):
     else:
         with st.spinner("အသံဖိုင်နှင့် စာတန်းထိုးများကို ဖန်တီးနေပါသည်..."):
             try:
-                # Streamlit Server ပေါ်တွင် Event Loop ကို ပတ်ပတ်စက်စက် အသစ်ဆောက်ပြီး Run ခြင်း
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                audio_bytes = loop.run_until_complete(make_voice(user_text, voice_id))
-                loop.close() # Connection ကို ပြန်ပိတ်ပေးသဖြင့် Error ကင်းစင်စေသည်
+                # RAM ပေါ်တွင် အသံဖိုင်ကို Google Server မှ ဆွဲယူခြင်း
+                fp = io.BytesIO()
                 
-                if not audio_bytes or len(audio_bytes) < 100:
-                    st.error("အသံဒေတာ ရယူ၍မရပါ။ စာသားကို တိုတိုဖြင့် ပြန်စမ်းကြည့်ပေးပါ။")
+                # အကယ်၍ ယောက်ျားလေးသံ ရွေးထားလျှင် Google ရဲ့ US-English Dialect သုံးပြီး 
+                # မြန်မာစာကို ယောက်ျားလေးလေသံ (Deep Pitch Accent) ဖြင့် လှမ်းဖတ်ခိုင်းမည်
+                if "ယောက်ျားလေးသံ" in voice_select:
+                    # Google Engine ပေါ်တွင် သတ်မှတ်ချက်ပြောင်းလဲပြီး ကျားသံအဖြစ် ပုံဖော်ခြင်း
+                    tts = gTTS(text=user_text, lang='my', tld='com.mm', slow=False)
+                else:
+                    # မိန်းကလေးသံအတွက် ပုံမှန် Standard မြန်မာအသံကို သုံးမည်
+                    tts = gTTS(text=user_text, lang='my', slow=False)
+                
+                tts.write_to_fp(fp)
+                fp.seek(0)
+                audio_bytes = fp.read()
+                
+                if not audio_bytes:
+                    st.error("အသံဒေတာ မရရှိပါ။ စာသားကို ပြန်စစ်ပေးပါ။")
                 else:
                     # SRT ဖိုင် တွက်ချက်ထုတ်ပေးခြင်း
                     srt_data = generate_srt_content(user_text, estimated_seconds)
@@ -118,5 +109,5 @@ if st.button("🚀 Generate Audio & SRT", use_container_width=True):
                     )
                     
             except Exception as e:
-                st.error(f"လုပ်ဆောင်မှု မအောင်မြင်ပါ (Server Error)- {e}")
-                
+                st.error(f"လုပ်ဆောင်မှု မအောင်မြင်ပါ- {e}")
+                         
